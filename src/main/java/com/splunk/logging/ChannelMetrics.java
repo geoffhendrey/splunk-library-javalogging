@@ -41,6 +41,7 @@ public class ChannelMetrics extends Observable implements AckLifecycle {
   private long ackPollOKCount;
   private long ackPollNotOKCount;
   private long ackPollFailureCount;
+  private boolean lastHealthCheck;
 
   ChannelMetrics(HttpEventCollectorSender sender) {
     this.sender = sender;
@@ -99,6 +100,10 @@ public class ChannelMetrics extends Observable implements AckLifecycle {
   public String getOldest() {
     return new Date(oldestUnackedBirthtime).toString();
   }
+
+  public void setChannelHealth(boolean health) { this.lastHealthCheck = health; }
+
+  public boolean getChannelHealth() { return this.lastHealthCheck; }
 
   /**
    * @return the mostRecentTimeToSuccess

@@ -91,11 +91,11 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
   public static final int DefaultBatchInterval = 10 * 1000; // 10 seconds
   public static final int DefaultBatchSize = 10 * 1024; // 10KB
   public static final int DefaultBatchCount = 10; // 10 events
-  
+
   private Timer timer = new Timer();
   private String url;
   private String token;
-  private EventBatch eventsBatch;// = new EventBatch();  
+  private EventBatch eventsBatch;// = new EventBatch();
   private CloseableHttpAsyncClient httpClient;
   private boolean disableCertificateValidation = false;
   private SendMode sendMode = SendMode.Sequential;
@@ -103,7 +103,10 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
   private final String channel = newChannel();
   private boolean ack = false;
   private String ackUrl;
+  private String healthUrl;
   private AckMiddleware ackMiddleware;
+  // TODO: add health poll scheduler
+  // private HealthPollScheduler healthScheduler;
 
   /**
    * Initialize HttpEventCollectorSender
@@ -121,28 +124,42 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
           String sendModeStr,
           boolean ack,
           String ackUrl,
+          String healthUrl,
           Map<String, String> metadata) {
     this.url = Url;
     this.token = token;
     this.ack = ack;
     this.ackUrl = ackUrl;
-        if (maxEventsBatchCount == 0 && maxEventsBatchSize > 0) {
+    if (maxEventsBatchCount == 0 && maxEventsBatchSize > 0) {
       this.maxEventsBatchCount = Long.MAX_VALUE;
     } else if (maxEventsBatchSize == 0 && maxEventsBatchCount > 0) {
       this.maxEventsBatchSize = Long.MAX_VALUE;
     }
    this.delay= delay; 
    this.metadata=metadata;
+   this.healthUrl = healthUrl;
 
     if (ack) {
-      if (null == ackUrl || ackUrl.isEmpty()) {
+      if (null == ackUrl || ackUrl.isEmpty() ) {
         throw new RuntimeException(
                 "AckUrl was not specified, but HttpEventCollectorSender set to use acks.");
       }
       this.ackMiddleware = new AckMiddleware(this);
       this.middleware.add(ackMiddleware);
     }
-    
+
+    if (null == healthUrl || healthUrl.isEmpty() ) {
+        throw new RuntimeException(
+                "healthUrl was not specified.");
+    }
+
+    this.eventsBatch = new EventBatch(this,
+                                              maxEventsBatchCount,
+                                              maxEventsBatchSize,
+                                              delay,
+                                              metadata,
+                                              timer);
+
     if (sendModeStr != null) {
       if (sendModeStr.equals(SendModeSequential)) {
         this.sendMode = SendMode.Sequential;
@@ -155,7 +172,7 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
     }
 
   }
-  
+
   public AckWindow getAckWindow(){
     return this.ackMiddleware.getAckManager().getAckWindow();
   }
@@ -242,7 +259,7 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
   public void disableCertificateValidation() {
     disableCertificateValidation = true;
   }
-  
+
   public ChannelMetrics getChannelMetrics(){
     return this.ackMiddleware.getChannelMetrics();
   }
@@ -301,7 +318,7 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
             new HttpEventCollectorMiddleware.IHttpSenderCallback() {
       @Override
       public void completed(int statusCode, String reply) {
-        if (statusCode != 200) {          
+        if (statusCode != 200) {
           HttpEventCollectorErrorHandler.error(
                   events,
                   new HttpEventCollectorErrorHandler.ServerErrorException(
@@ -409,9 +426,9 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
         //if (httpStatusCode != 200) {
         try {
           reply = EntityUtils.toString(response.getEntity(), encoding);
-          //System.out.println("reply: " + reply);	//fixme undo hack 		
+          //System.out.println("reply: " + reply);	//fixme undo hack
         } catch (IOException e) {
-          //if IOException ocurrs toStringing response, this is not something we can expect client 
+          //if IOException ocurrs toStringing response, this is not something we can expect client
           //to handle
           throw new RuntimeException(e.getMessage(), e);
           //reply = e.getMessage();
@@ -430,6 +447,54 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
       }
     });
 
+  }
+
+  public boolean isChannelHealthy() {
+    return getChannelMetrics().getChannelHealth();
+  }
+
+  public void setChannelHealth(int statusCode) {
+      // For status code anything other 200
+      if (statusCode == 200) {
+        getChannelMetrics().setChannelHealth(true);
+      }
+      else {
+        // TODO: 400 should not be indicative of unhealthy HEC
+        // but rather the URL is wrong. Will update channel metrics
+        // instead similar to failed http post
+        getChannelMetrics().setChannelHealth(false);
+      }
+  }
+
+  public void pollHealth() {
+    startHttpClient(); // make sure http client is started
+    // create http request
+    String postUrl = String.format("%s?ack=1&token=%s", healthUrl, token);
+    final HttpPost httpPost = new HttpPost(postUrl);
+    httpPost.setHeader(
+            AuthorizationHeaderTag,
+            String.format(AuthorizationHeaderScheme, token));
+
+    httpPost.setHeader(
+            ChannelHeader,
+            getChannel());
+
+    httpClient.execute(httpPost, new FutureCallback<HttpResponse>() {
+      @Override
+      public void completed(HttpResponse response) {
+        int statusCode = response.getStatusLine().getStatusCode();
+        setChannelHealth(statusCode);
+      }
+
+      @Override
+      public void failed(Exception ex) {
+        // TODO: tell channel metrics be failed
+      }
+
+      @Override
+      public void cancelled() {
+      }
+    });
   }
 
 }
