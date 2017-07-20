@@ -18,6 +18,7 @@ package com.splunk.logging;
  * the License.
  */
 import org.apache.http.HttpResponse;
+import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.concurrent.FutureCallback;
 import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
@@ -456,6 +457,7 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
   public void setChannelHealth(int statusCode) {
       // For status code anything other 200
       if (statusCode == 200) {
+        System.out.println("Health check is good");
         getChannelMetrics().setChannelHealth(true);
       }
       else {
@@ -469,17 +471,17 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
   public void pollHealth() {
     startHttpClient(); // make sure http client is started
     // create http request
-    String postUrl = String.format("%s?ack=1&token=%s", healthUrl, token);
-    final HttpPost httpPost = new HttpPost(postUrl);
-    httpPost.setHeader(
+    String getUrl = String.format("%s?ack=1&token=%s", healthUrl, token);
+    final HttpGet httpGet = new HttpGet(getUrl);
+    httpGet.setHeader(
             AuthorizationHeaderTag,
             String.format(AuthorizationHeaderScheme, token));
 
-    httpPost.setHeader(
+    httpGet.setHeader(
             ChannelHeader,
             getChannel());
 
-    httpClient.execute(httpPost, new FutureCallback<HttpResponse>() {
+    httpClient.execute(httpGet, new FutureCallback<HttpResponse>() {
       @Override
       public void completed(HttpResponse response) {
         int statusCode = response.getStatusLine().getStatusCode();
