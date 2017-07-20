@@ -38,7 +38,7 @@ public class AckManager implements AckLifecycle{
 
   private static final ObjectMapper mapper = new ObjectMapper();
   private final HttpEventCollectorSender sender;
-  private final AckPollScheduler ackPollController = new AckPollScheduler();
+  private final PollScheduler ackPollController = new PollScheduler();
   private final AckWindow ackWindow;
   private final ChannelMetrics channelMetrics;
 
@@ -58,6 +58,19 @@ public class AckManager implements AckLifecycle{
   public ChannelMetrics getChannelMetrics() {
     return channelMetrics;
   }
+  
+  private void startPolling() {
+	if (!ackPollController.isStarted()) {
+	    Runnable poller = () -> {
+	          if(this.getAckPollReq().isEmpty()){
+	              System.out.println("No acks to poll for");
+	              return;
+	          }
+	          this.pollAcks();
+	    };
+	    ackPollController.start(poller);
+	}
+  }
 
   //called by AckMiddleware when event post response comes back with the indexer-generated ackId
   public void consumeEventPostResponse(String resp, EventBatch events) {
@@ -73,12 +86,12 @@ public class AckManager implements AckLifecycle{
       Logger.getLogger(getClass().getName()).log(Level.SEVERE, ex.getMessage(), ex);
       throw new RuntimeException(ex.getMessage(), ex);
     }
+
     System.out.println("ABOUT TO HANDLE EPR");
     ackWindow.handleEventPostResponse(epr, events);
-    if (!ackPollController.isStarted()) {
-      ackPollController.start(this); //will call back to pollAcks() for sending the list of ackIds to HEC 
-    }
 
+    // start polling for acks
+    startPolling();
   }
 
   public void consumeAckPollResponse(String resp) {

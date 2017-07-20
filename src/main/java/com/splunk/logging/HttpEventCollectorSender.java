@@ -104,11 +104,10 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
   private final String channel = newChannel();
   private boolean ack = false;
   private String ackUrl;
-  private String healthUrl;
   private AckMiddleware ackMiddleware;
-  // TODO: add health poll scheduler
-  // private HealthPollScheduler healthScheduler;
 
+  private String healthUrl;
+  private PollScheduler healthPollScheduler = new PollScheduler();
   /**
    * Initialize HttpEventCollectorSender
    *
@@ -153,6 +152,7 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
         throw new RuntimeException(
                 "healthUrl was not specified.");
     }
+    startPollingForHealth();
 
     this.eventsBatch = new EventBatch(this,
                                               maxEventsBatchCount,
@@ -172,6 +172,15 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
       }
     }
 
+  }
+
+  private void startPollingForHealth() {
+	if (!healthPollScheduler.isStarted()) {
+	    Runnable poller = () -> {
+	          this.pollHealth();
+	    };
+	    healthPollScheduler.start(poller);
+	}
   }
 
   public AckWindow getAckWindow(){
