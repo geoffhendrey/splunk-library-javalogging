@@ -29,22 +29,13 @@ import org.apache.http.impl.nio.client.CloseableHttpAsyncClient;
 import org.apache.http.impl.nio.client.HttpAsyncClients;
 import org.apache.http.util.EntityUtils;
 
-import org.json.simple.JSONObject;
 import javax.net.ssl.SSLContext;
 import java.io.IOException;
 import java.io.Serializable;
 import java.io.UnsupportedEncodingException;
 import java.security.cert.X509Certificate;
-import java.util.Dictionary;
 import java.util.Timer;
-import java.util.TimerTask;
-import java.util.List;
-import java.util.LinkedList;
 import java.util.Map;
-import java.util.Locale;
-import java.util.Observable;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 /**
  * This is an internal helper class that sends logging events to Splunk http
@@ -107,7 +98,6 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
   private AckMiddleware ackMiddleware;
 
   private String healthUrl;
-  private PollScheduler healthPollScheduler = new PollScheduler();
   /**
    * Initialize HttpEventCollectorSender
    *
@@ -152,7 +142,6 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
         throw new RuntimeException(
                 "healthUrl was not specified.");
     }
-    startPollingForHealth();
 
     this.eventsBatch = new EventBatch(this,
                                               maxEventsBatchCount,
@@ -172,15 +161,6 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
       }
     }
 
-  }
-
-  private void startPollingForHealth() {
-	if (!healthPollScheduler.isStarted()) {
-	    Runnable poller = () -> {
-	          this.pollHealth();
-	    };
-	    healthPollScheduler.start(poller);
-	}
   }
 
   public AckWindow getAckWindow(){
@@ -259,6 +239,7 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
    */
   public void close() {
     eventsBatch.close();
+    this.ackMiddleware.close();
     timer.cancel();
   }
 
@@ -419,7 +400,7 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
 
     StringEntity entity;
     try {
-      String req = ackMgr.getAckPollReq().toString();
+      String req = ackMgr.getAckPollReq();
       System.out.println("posting acks: "+ req);      
       entity = new StringEntity(req);
     } catch (UnsupportedEncodingException ex) {
@@ -459,27 +440,8 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
 
   }
 
-  public boolean isChannelHealthy() {
-    return getChannelMetrics().getChannelHealth();
-  }
-
-  public void setChannelHealth(int statusCode, String msg) {
-      // For status code anything other 200
-      if (statusCode == 200) {
-          System.out.println("Health check is good");
-          getChannelMetrics().healthPollOK();
-      }
-      else if (statusCode == 503) {
-          getChannelMetrics().healthPollNotOK(statusCode, msg);
-      }
-      else {
-          // 400 should not be indicative of unhealthy HEC
-          // but rather the URL/token is wrong.
-          getChannelMetrics().healthPollFailed(new Exception(msg));
-      }
-  }
-
-  public void pollHealth() {
+  public void pollHealth(
+		  HttpEventCollectorMiddleware.IHttpSenderCallback callback) {
     startHttpClient(); // make sure http client is started
     // create http request
     String getUrl = String.format("%s?ack=1&token=%s", healthUrl, token);
@@ -503,12 +465,12 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
         } catch (IOException e) {
           throw new RuntimeException(e.getMessage(), e);
         }
-        setChannelHealth(statusCode, msg);
+        callback.completed(statusCode, msg);
       }
 
       @Override
       public void failed(Exception ex) {
-        getChannelMetrics().healthPollFailed(ex);
+        callback.failed(ex);
       }
 
       @Override

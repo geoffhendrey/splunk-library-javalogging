@@ -20,6 +20,7 @@ package com.splunk.logging;
  * @author ghendrey
  */
 public class AckLifecycleState {
+
   public enum State {
 	// States tied to an EventBatch object
     PRE_EVENT_POST,
@@ -39,12 +40,16 @@ public class AckLifecycleState {
 
   private final State currentState;
   private EventBatch events = null;
+  private final HttpEventCollectorSender sender;
 
-  public AckLifecycleState(State currentState, EventBatch events) throws Exception {
+  public AckLifecycleState(State currentState
+		  , EventBatch events
+		  , HttpEventCollectorSender sender) throws Exception {
 	if (events == null) {
 		throw new Exception("Provided state requires an EventBatch object");
 	}
     this.currentState = currentState;
+    this.sender = sender;
 
     // ignore events for State values not an needing EventBatch object
 	if (currentState.compareTo(State.HEALTH_POLL_OK) < 0) {
@@ -52,11 +57,12 @@ public class AckLifecycleState {
 	}
   }
 
-  public AckLifecycleState(State currentState) throws Exception {
+  public AckLifecycleState(State currentState, HttpEventCollectorSender sender) throws Exception {
 	if (currentState.compareTo(State.HEALTH_POLL_OK) < 0) {
 		throw new Exception("Provided state requires an EventBatch object");
 	}
 	this.currentState = currentState;
+	this.sender = sender;
   }
 
   /**
@@ -71,5 +77,12 @@ public class AckLifecycleState {
    */
   public EventBatch getEvents() {
     return events;
+  }
+
+  /**
+   * @return the sender
+   */
+  public HttpEventCollectorSender getSender() {
+    return sender;
   }
 }

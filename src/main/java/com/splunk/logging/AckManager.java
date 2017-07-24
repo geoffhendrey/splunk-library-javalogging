@@ -17,6 +17,7 @@ package com.splunk.logging;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.Closeable;
 import java.io.IOException;
 import java.util.Map;
 import java.util.logging.Level;
@@ -34,11 +35,12 @@ import java.util.logging.Logger;
  *
  * @author ghendrey
  */
-public class AckManager implements AckLifecycle{
+public class AckManager implements AckLifecycle, Closeable{
 
   private static final ObjectMapper mapper = new ObjectMapper();
   private final HttpEventCollectorSender sender;
   private final PollScheduler ackPollController = new PollScheduler();
+  private final PollScheduler healthPollController = new PollScheduler();
   private final AckWindow ackWindow;
   private final ChannelMetrics channelMetrics;
 
@@ -46,13 +48,16 @@ public class AckManager implements AckLifecycle{
     this.sender = sender;
     this.channelMetrics = new ChannelMetrics(sender);
     this.ackWindow = new AckWindow(this.channelMetrics);
+
+    // start polling for health
+    startPollingForHealth();
   }
 
   /**
    * @return the ackPollReq
    */
-  public AckWindow getAckPollReq() {
-    return ackWindow;
+  public String getAckPollReq() {
+    return ackWindow.toString();
   }
 
   public ChannelMetrics getChannelMetrics() {
@@ -62,13 +67,22 @@ public class AckManager implements AckLifecycle{
   private void startPolling() {
 	if (!ackPollController.isStarted()) {
 	    Runnable poller = () -> {
-	          if(this.getAckPollReq().isEmpty()){
+	          if(ackWindow.isEmpty()){
 	              System.out.println("No acks to poll for");
 	              return;
 	          }
 	          this.pollAcks();
 	    };
 	    ackPollController.start(poller);
+	}
+  }
+
+  private void startPollingForHealth() {
+	if (!healthPollController.isStarted()) {
+	    Runnable poller = () -> {
+	          this.pollHealth();
+	    };
+	    healthPollController.start(poller);
 	}
   }
 
@@ -124,6 +138,38 @@ public class AckManager implements AckLifecycle{
       @Override
       public void failed(Exception ex) {
         ackPollFailed(ex);
+      }
+    });
+  }
+
+  public void setChannelHealth(int statusCode, String msg) {
+      // For status code anything other 200
+      if (statusCode == 200) {
+          System.out.println("Health check is good");
+          healthPollOK();
+      }
+      else if (statusCode == 503) {
+          healthPollNotOK(statusCode, msg);
+      }
+      else {
+          // 400 should not be indicative of unhealthy HEC
+          // but rather the URL/token is wrong.
+          healthPollFailed(new Exception(msg));
+      }
+  }
+
+  public void pollHealth() {
+    System.out.println("POLLING HEALTH...");
+    sender.pollHealth(
+            new HttpEventCollectorMiddleware.IHttpSenderCallback() {
+      @Override
+      public void completed(int statusCode, String reply) {
+        setChannelHealth(statusCode, reply);
+      }
+
+      @Override
+      public void failed(Exception ex) {
+        healthPollFailed(ex);
       }
     });
   }
@@ -202,4 +248,8 @@ public class AckManager implements AckLifecycle{
 	getChannelMetrics().healthPollNotOK(code, msg);
   }
 
+  public void close() {
+    this.ackPollController.stop();
+    this.healthPollController.stop();
+  }
 }
