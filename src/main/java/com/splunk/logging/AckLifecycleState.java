@@ -21,14 +21,42 @@ package com.splunk.logging;
  */
 public class AckLifecycleState {
   public enum State {
-    PRE_EVENT_POST, EVENT_POST_OK, EVENT_POST_NOT_OK, EVENT_POST_FAILURE, PRE_ACK_POLL, ACK_POLL_OK, ACK_POLL_NOT_OK, ACK_POLL_FAILURE
-  };  
-  private final State currentState;
-  private final EventBatch events;
+	// States tied to an EventBatch object
+    PRE_EVENT_POST,
+    EVENT_POST_OK,
+    EVENT_POST_NOT_OK,
+    EVENT_POST_FAILURE,
+    PRE_ACK_POLL,
+    ACK_POLL_OK,
+    ACK_POLL_NOT_OK,
+    ACK_POLL_FAILURE,
 
-  public AckLifecycleState(State currentState, EventBatch events) {
+    // States without an EventBatch object
+    HEALTH_POLL_OK,
+    HEALTH_POLL_NOT_OK,
+    HEALTH_POLL_FAILED
+  };
+
+  private final State currentState;
+  private EventBatch events = null;
+
+  public AckLifecycleState(State currentState, EventBatch events) throws Exception {
+	if (events == null) {
+		throw new Exception("Provided state requires an EventBatch object");
+	}
     this.currentState = currentState;
-    this.events = events;
+
+    // ignore events for State values not an needing EventBatch object
+	if (currentState.compareTo(State.HEALTH_POLL_OK) < 0) {
+	  this.events = events;
+	}
+  }
+
+  public AckLifecycleState(State currentState) throws Exception {
+	if (currentState.compareTo(State.HEALTH_POLL_OK) < 0) {
+		throw new Exception("Provided state requires an EventBatch object");
+	}
+	this.currentState = currentState;
   }
 
   /**

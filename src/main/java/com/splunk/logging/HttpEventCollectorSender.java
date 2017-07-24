@@ -463,17 +463,19 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
     return getChannelMetrics().getChannelHealth();
   }
 
-  public void setChannelHealth(int statusCode) {
+  public void setChannelHealth(int statusCode, String msg) {
       // For status code anything other 200
       if (statusCode == 200) {
-        System.out.println("Health check is good");
-        getChannelMetrics().setChannelHealth(true);
+          System.out.println("Health check is good");
+          getChannelMetrics().healthPollOK();
+      }
+      else if (statusCode == 503) {
+          getChannelMetrics().healthPollNotOK(statusCode, msg);
       }
       else {
-        // TODO: 400 should not be indicative of unhealthy HEC
-        // but rather the URL is wrong. Will update channel metrics
-        // instead similar to failed http post
-        getChannelMetrics().setChannelHealth(false);
+          // 400 should not be indicative of unhealthy HEC
+          // but rather the URL/token is wrong.
+          getChannelMetrics().healthPollFailed(new Exception(msg));
       }
   }
 
@@ -493,13 +495,20 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
     httpClient.execute(httpGet, new FutureCallback<HttpResponse>() {
       @Override
       public void completed(HttpResponse response) {
+        final String encoding = "utf-8";
+        String msg = "";
         int statusCode = response.getStatusLine().getStatusCode();
-        setChannelHealth(statusCode);
+        try {
+          msg = EntityUtils.toString(response.getEntity(), encoding);
+        } catch (IOException e) {
+          throw new RuntimeException(e.getMessage(), e);
+        }
+        setChannelHealth(statusCode, msg);
       }
 
       @Override
       public void failed(Exception ex) {
-        // TODO: tell channel metrics be failed
+        getChannelMetrics().healthPollFailed(ex);
       }
 
       @Override

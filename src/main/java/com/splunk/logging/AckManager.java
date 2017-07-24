@@ -187,5 +187,19 @@ public class AckManager implements AckLifecycle{
     return ackWindow;
   }
 
+  @Override
+  public void healthPollFailed(Exception ex) {
+	getChannelMetrics().healthPollFailed(ex);
+  }
+
+  @Override
+  public void healthPollOK() {
+	getChannelMetrics().healthPollOK();
+  }
+
+  @Override
+  public void healthPollNotOK(int code, String msg) {
+	getChannelMetrics().healthPollNotOK(code, msg);
+  }
 
 }
