@@ -103,6 +103,7 @@ public final class HttpEventCollectorLoggingHandler extends Handler {
     private final String MiddlewareTag = "middleware";
     private final String AckTag = "ack";	
     private final String AkUrlTag = "ackUrl";
+    private final String healthUrlTag = "healthUrl";
 
     /** HttpEventCollectorLoggingHandler c-or */
     public HttpEventCollectorLoggingHandler() {
@@ -126,6 +127,9 @@ public final class HttpEventCollectorLoggingHandler extends Handler {
         // app token
         String token = getConfigurationProperty("token", null);
 
+        // http event collector health
+        String healthUrl = getConfigurationProperty(healthUrlTag, "");
+
         // batching properties
         long delay = getConfigurationNumericProperty(BatchDelayConfTag, HttpEventCollectorSender.DefaultBatchInterval);
         long batchCount = getConfigurationNumericProperty(BatchCountConfTag, HttpEventCollectorSender.DefaultBatchCount);
@@ -138,7 +142,7 @@ public final class HttpEventCollectorLoggingHandler extends Handler {
 
         // delegate all configuration params to event sender
         this.sender = new HttpEventCollectorSender(
-                url, token, delay, batchCount, batchSize, sendMode, ack, ackUrl, metadata);
+                url, token, delay, batchCount, batchSize, sendMode, ack, ackUrl, healthUrl, metadata);
 
         // plug a user middleware
         if (middleware != null && !middleware.isEmpty()) {

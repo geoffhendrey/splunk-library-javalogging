@@ -21,23 +21,48 @@ package com.splunk.logging;
  */
 public class AckLifecycleState {
 
-  /**
-   * @return the sender
-   */
-  public HttpEventCollectorSender getSender() {
-    return sender;
-  }
   public enum State {
-    PRE_EVENT_POST, EVENT_POST_OK, EVENT_POST_NOT_OK, EVENT_POST_FAILURE, PRE_ACK_POLL, ACK_POLL_OK, ACK_POLL_NOT_OK, ACK_POLL_FAILURE
-  };  
+	// States tied to an EventBatch object
+    PRE_EVENT_POST,
+    EVENT_POST_OK,
+    EVENT_POST_NOT_OK,
+    EVENT_POST_FAILURE,
+    PRE_ACK_POLL,
+    ACK_POLL_OK,
+    ACK_POLL_NOT_OK,
+    ACK_POLL_FAILURE,
+
+    // States without an EventBatch object
+    HEALTH_POLL_OK,
+    HEALTH_POLL_NOT_OK,
+    HEALTH_POLL_FAILED
+  };
+
   private final State currentState;
-  private final EventBatch events;
+  private EventBatch events = null;
   private final HttpEventCollectorSender sender;
 
-  public AckLifecycleState(State currentState, EventBatch events, HttpEventCollectorSender sender) {
+  public AckLifecycleState(State currentState
+		  , EventBatch events
+		  , HttpEventCollectorSender sender) throws Exception {
+	if (events == null) {
+		throw new Exception("Provided state requires an EventBatch object");
+	}
     this.currentState = currentState;
-    this.events = events;
     this.sender = sender;
+
+    // ignore events for State values not an needing EventBatch object
+	if (currentState.compareTo(State.HEALTH_POLL_OK) < 0) {
+	  this.events = events;
+	}
+  }
+
+  public AckLifecycleState(State currentState, HttpEventCollectorSender sender) throws Exception {
+	if (currentState.compareTo(State.HEALTH_POLL_OK) < 0) {
+		throw new Exception("Provided state requires an EventBatch object");
+	}
+	this.currentState = currentState;
+	this.sender = sender;
   }
 
   /**
@@ -52,5 +77,12 @@ public class AckLifecycleState {
    */
   public EventBatch getEvents() {
     return events;
+  }
+
+  /**
+   * @return the sender
+   */
+  public HttpEventCollectorSender getSender() {
+    return sender;
   }
 }

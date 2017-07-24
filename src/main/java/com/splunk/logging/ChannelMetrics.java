@@ -42,6 +42,12 @@ public class ChannelMetrics extends Observable implements AckLifecycle {
   private long ackPollNotOKCount;
   private long ackPollFailureCount;
 
+  // health-related
+  private boolean lastHealthCheck;
+  private long healthPollOKCount;
+  private long healthPollNotOKCount;
+  private long healthPollFailureCount;
+
   ChannelMetrics(HttpEventCollectorSender sender) {
     this.sender = sender;
   }
@@ -61,10 +67,14 @@ public class ChannelMetrics extends Observable implements AckLifecycle {
     if (oldestUnackedBirthtime == Long.MIN_VALUE) { //not set yet id MIN_VALUE
       oldestUnackedBirthtime = birthtime; //this happens only once. It's a dumb firt run edgecase
       this.setChanged();
-      AckLifecycleState state = new AckLifecycleState(
-            AckLifecycleState.State.EVENT_POST_OK, events, this.sender);
-    System.out.println("NOTIFYING ACK_POLL_OK");
-      this.notifyObservers(state);
+      try {
+          AckLifecycleState state = new AckLifecycleState(
+                  AckLifecycleState.State.EVENT_POST_OK, events, this.sender);
+            System.out.println("NOTIFYING ACK_POLL_OK");
+            this.notifyObservers(state);
+      } catch (Exception e) {
+          //TODO: do something with e
+      }
     }
   }
 
@@ -102,6 +112,8 @@ public class ChannelMetrics extends Observable implements AckLifecycle {
   public String getOldest() {
     return new Date(oldestUnackedBirthtime).toString();
   }
+
+  public boolean getChannelHealth() { return this.lastHealthCheck; }
 
   /**
    * @return the mostRecentTimeToSuccess
@@ -156,10 +168,14 @@ public class ChannelMetrics extends Observable implements AckLifecycle {
     ackPollOKCount++;
     ackIdSucceeded(events.getAckId());
     setChanged();
-    AckLifecycleState state = new AckLifecycleState(
-            AckLifecycleState.State.ACK_POLL_OK, events, this.sender);
-    System.out.println("NOTIFYING ACK_POLL_OK");
-    notifyObservers(state);
+    try {
+        AckLifecycleState state = new AckLifecycleState(
+                AckLifecycleState.State.ACK_POLL_OK, events, this.sender);
+        System.out.println("NOTIFYING ACK_POLL_OK");
+        notifyObservers(state);
+    } catch (Exception e) {
+        //TODO: do something with the Exception
+    }
   }
 
   @Override
@@ -172,4 +188,22 @@ public class ChannelMetrics extends Observable implements AckLifecycle {
     ackPollFailureCount++;
   }
 
+  @Override
+  public void healthPollFailed(Exception ex) {
+	// There's a 400 fail that is sent back by the HEC
+	// when the token is invalid.
+	healthPollFailureCount++;
+  }
+
+  @Override
+  public void healthPollOK() {
+	lastHealthCheck = true;
+	healthPollOKCount++;
+  }
+
+  @Override
+  public void healthPollNotOK(int code, String msg) {
+	lastHealthCheck = false;
+	healthPollNotOKCount++;
+  }
 }

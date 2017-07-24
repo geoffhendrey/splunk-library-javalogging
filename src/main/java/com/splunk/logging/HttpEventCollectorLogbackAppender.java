@@ -44,6 +44,7 @@ public class HttpEventCollectorLogbackAppender extends AppenderBase<ILoggingEven
     private long _retriesOnError = 0;
     private boolean _ack = false;
     private String _ackUrl;
+    private String _healthUrl;
 
     @Override
     public void start() {
@@ -65,7 +66,7 @@ public class HttpEventCollectorLogbackAppender extends AppenderBase<ILoggingEven
             metadata.put(HttpEventCollectorSender.MetadataSourceTypeTag, _sourcetype);
 
         this.sender = new HttpEventCollectorSender(
-                _url, _token, _batchInterval, _batchCount, _batchSize, _sendMode, _ack, _ackUrl, metadata);
+                _url, _token, _batchInterval, _batchCount, _batchSize, _sendMode, _ack, _ackUrl, _healthUrl, metadata);
 
         // plug a user middleware
         if (_middleware != null && !_middleware.isEmpty()) {
@@ -230,6 +231,19 @@ public class HttpEventCollectorLogbackAppender extends AppenderBase<ILoggingEven
   public void setAckUrl(String _ackUrl) {
     this._ackUrl = _ackUrl;
   }
-	
+
+//  /**
+//   * @return the _healthUrl
+//   */
+//  public String getHealthUrl() {
+//    return _healthUrl;
+//  }
+//
+//  /**
+//   * @param _healthUrl the _healthUrl to set
+//   */
+//  public void setHealthUrl(String _healthUrl) {
+//    this._healthUrl = _healthUrl;
+//  }
 }
 
