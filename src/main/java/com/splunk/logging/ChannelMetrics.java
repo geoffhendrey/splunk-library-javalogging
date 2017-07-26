@@ -170,7 +170,7 @@ public class ChannelMetrics extends Observable implements AckLifecycle {
     setChanged();
     try {
         AckLifecycleState state = new AckLifecycleState(
-                AckLifecycleState.State.ACK_POLL_OK, events, this.sender);
+            AckLifecycleState.State.ACK_POLL_OK, events, this.sender);
         System.out.println("NOTIFYING ACK_POLL_OK");
         notifyObservers(state);
     } catch (Exception e) {
@@ -199,11 +199,29 @@ public class ChannelMetrics extends Observable implements AckLifecycle {
   public void healthPollOK() {
 	lastHealthCheck = true;
 	healthPollOKCount++;
+    setChanged();
+    try {
+        AckLifecycleState state = new AckLifecycleState(
+            AckLifecycleState.State.HEALTH_POLL_OK, this.sender);
+        System.out.println("NOTIFYING HEALTH_POLL_OK");
+        notifyObservers(state);
+    } catch (Exception e) {
+        //TODO: do something with the Exception
+    }
   }
 
   @Override
   public void healthPollNotOK(int code, String msg) {
 	lastHealthCheck = false;
 	healthPollNotOKCount++;
+    setChanged();
+    try {
+        AckLifecycleState state = new AckLifecycleState(
+            AckLifecycleState.State.HEALTH_POLL_NOT_OK, this.sender);
+        System.out.println("NOTIFYING HEALTH_POLL_NOT_OK");
+        notifyObservers(state);
+    } catch (Exception e) {
+        //TODO: do something with the Exception
+    }
   }
 }
