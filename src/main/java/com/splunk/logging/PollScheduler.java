@@ -45,7 +45,10 @@ class PollScheduler {
 
   public synchronized void stop() {
     System.out.println("SHUTTING DOWN POLLER");
-    scheduler.shutdown();
+    if(null != scheduler){    
+      //scheduler.shutdown();
+      scheduler.shutdownNow();
+    }
     scheduler = null;
   }
   

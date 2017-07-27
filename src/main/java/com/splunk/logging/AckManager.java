@@ -43,6 +43,7 @@ public class AckManager implements AckLifecycle, Closeable{
   private final PollScheduler healthPollController = new PollScheduler();
   private final AckWindow ackWindow;
   private final ChannelMetrics channelMetrics;
+  private boolean ackPollInProgress;
 
   AckManager(HttpEventCollectorSender sender) {
     this.sender = sender;
@@ -67,8 +68,11 @@ public class AckManager implements AckLifecycle, Closeable{
   private void startPolling() {
 	if (!ackPollController.isStarted()) {
 	    Runnable poller = () -> {
-	          if(ackWindow.isEmpty()){
+	          if(this.getAckWindow().isEmpty()){
 	              System.out.println("No acks to poll for");
+	              return;
+	          }else if(this.isAckPollInProgress()){
+	              System.out.println("skipping ack poll - already have one in flight");
 	              return;
 	          }
 	          this.pollAcks();
@@ -121,25 +125,33 @@ public class AckManager implements AckLifecycle, Closeable{
 
   //called by the AckPollScheduler
   public void pollAcks() {
+    if(this.ackWindow.isEmpty()){
+      return; //ack poll scheduled but not needed
+    }
     System.out.println("POLLING ACKS...");
+    this.ackPollInProgress = true;
     preAckPoll();
+    System.out.println("sending acks");
     sender.pollAcks(this,
             new HttpEventCollectorMiddleware.IHttpSenderCallback() {
       @Override
       public void completed(int statusCode, String reply) {
-        System.out.println("reply: " + reply);
+        System.out.println("channel="+getSender().getChannel()+" reply: " + reply);
         if (statusCode == 200) {
           consumeAckPollResponse(reply);
         } else {
           ackPollNotOK(statusCode, reply);
         }
+        AckManager.this.ackPollInProgress = false;
       }
 
       @Override
       public void failed(Exception ex) {
         ackPollFailed(ex);
+        AckManager.this.ackPollInProgress = false;
       }
     });
+    System.out.println("sent acks");
   }
 
   public void setChannelHealth(int statusCode, String msg) {
@@ -246,6 +258,10 @@ public class AckManager implements AckLifecycle, Closeable{
   @Override
   public void healthPollNotOK(int code, String msg) {
 	getChannelMetrics().healthPollNotOK(code, msg);
+  }
+
+  boolean isAckPollInProgress() {
+    return this.ackPollInProgress;
   }
 
   public void close() {
