@@ -51,7 +51,7 @@ public class AckManager implements AckLifecycle, Closeable{
     this.ackWindow = new AckWindow(this.channelMetrics);
 
     // start polling for health
-    startPollingForHealth();
+
   }
 
   /**
@@ -65,7 +65,7 @@ public class AckManager implements AckLifecycle, Closeable{
     return channelMetrics;
   }
   
-  private void startPolling() {
+  private synchronized void startPolling() {
 	if (!ackPollController.isStarted()) {
 	    Runnable poller = () -> {
 	          if(this.getAckWindow().isEmpty()){
@@ -78,6 +78,7 @@ public class AckManager implements AckLifecycle, Closeable{
 	          this.pollAcks();
 	    };
 	    ackPollController.start(poller);
+       startPollingForHealth();
 	}
   }
 

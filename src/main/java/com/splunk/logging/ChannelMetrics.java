@@ -160,12 +160,6 @@ public class ChannelMetrics extends Observable implements AckLifecycle {
   @Override
   public void preEventsPost(EventBatch batch) {
     eventPostCount++;
-    /*
-    setChanged();
-    AckLifecycleState state = new AckLifecycleState(
-              AckLifecycleState.State.PRE_ACK_POLL, batch, this.sender);
-      notifyObservers(state);
-*/
   }
 
   @Override
@@ -193,10 +187,10 @@ public class ChannelMetrics extends Observable implements AckLifecycle {
     try {
       ackPollOKCount++;
       ackIdSucceeded(events.getAckId());
-      setChanged();
       AckLifecycleState state = new AckLifecycleState(
               AckLifecycleState.State.ACK_POLL_OK, events, this.sender);
       System.out.println("NOTIFYING ACK_POLL_OK");
+      setChanged();
       notifyObservers(state);
     } catch (Exception e) {
       LOG.severe(e.getMessage());
@@ -225,14 +219,15 @@ public class ChannelMetrics extends Observable implements AckLifecycle {
   public void healthPollOK() {
 	lastHealthCheck = true;
 	healthPollOKCount++;
-    setChanged();
     try {
         AckLifecycleState state = new AckLifecycleState(
             AckLifecycleState.State.HEALTH_POLL_OK, this.sender);
         System.out.println("NOTIFYING HEALTH_POLL_OK");
+        setChanged();
         notifyObservers(state);
     } catch (Exception e) {
-        //TODO: do something with the Exception
+        LOG.severe(e.getMessage());
+        throw new RuntimeException(e.getMessage(), e);
     }
   }
 
@@ -240,14 +235,15 @@ public class ChannelMetrics extends Observable implements AckLifecycle {
   public void healthPollNotOK(int code, String msg) {
 	lastHealthCheck = false;
 	healthPollNotOKCount++;
-    setChanged();
     try {
         AckLifecycleState state = new AckLifecycleState(
             AckLifecycleState.State.HEALTH_POLL_NOT_OK, this.sender);
         System.out.println("NOTIFYING HEALTH_POLL_NOT_OK");
+        setChanged();
         notifyObservers(state);
     } catch (Exception e) {
-        //TODO: do something with the Exception
+        LOG.severe(e.getMessage());
+        throw new RuntimeException(e.getMessage(), e);
     }
   }
 }

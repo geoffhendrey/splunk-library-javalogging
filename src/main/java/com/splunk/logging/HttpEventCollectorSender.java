@@ -37,6 +37,21 @@ import java.security.cert.X509Certificate;
 import java.util.Timer;
 import java.util.Map;
 import java.util.logging.Logger;
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.SSLException;
+import javax.net.ssl.SSLSession;
+import javax.net.ssl.SSLSocket;
+import org.apache.http.config.Registry;
+import org.apache.http.config.RegistryBuilder;
+import org.apache.http.conn.socket.ConnectionSocketFactory;
+import org.apache.http.conn.socket.PlainConnectionSocketFactory;
+import org.apache.http.conn.ssl.X509HostnameVerifier;
+import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
+import org.apache.http.impl.nio.conn.PoolingNHttpClientConnectionManager;
+import org.apache.http.impl.nio.reactor.DefaultConnectingIOReactor;
+import org.apache.http.nio.conn.NHttpClientConnectionManager;
+import org.apache.http.nio.conn.SchemeIOSessionStrategy;
+import org.apache.http.nio.conn.ssl.SSLIOSessionStrategy;
 
 /**
  * This is an internal helper class that sends logging events to Splunk http
@@ -44,7 +59,8 @@ import java.util.logging.Logger;
  */
 public final class HttpEventCollectorSender implements HttpEventCollectorMiddleware.IHttpSender {
 
-  private static final Logger LOG = Logger.getLogger(HttpEventCollectorSender.class.getName());
+  private static final Logger LOG = Logger.getLogger(
+          HttpEventCollectorSender.class.getName());
 
   public static final String MetadataTimeTag = "time";
   public static final String MetadataHostTag = "host";
@@ -101,6 +117,7 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
   private AckMiddleware ackMiddleware;
 
   private String healthUrl;
+
   /**
    * Initialize HttpEventCollectorSender
    *
@@ -128,12 +145,12 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
     } else if (maxEventsBatchSize == 0 && maxEventsBatchCount > 0) {
       this.maxEventsBatchSize = Long.MAX_VALUE;
     }
-   this.delay= delay; 
-   this.metadata=metadata;
-   this.healthUrl = healthUrl;
+    this.delay = delay;
+    this.metadata = metadata;
+    this.healthUrl = healthUrl;
 
     if (ack) {
-      if (null == ackUrl || ackUrl.isEmpty() ) {
+      if (null == ackUrl || ackUrl.isEmpty()) {
         throw new RuntimeException(
                 "AckUrl was not specified, but HttpEventCollectorSender set to use acks.");
       }
@@ -141,18 +158,18 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
       this.middleware.add(ackMiddleware);
     }
 
-    if (null == healthUrl || healthUrl.isEmpty() ) {
-        throw new RuntimeException(
-                "healthUrl was not specified.");
+    if (null == healthUrl || healthUrl.isEmpty()) {
+      throw new RuntimeException(
+              "healthUrl was not specified.");
     }
-
+/*
     this.eventsBatch = new EventBatch(this,
-                                              maxEventsBatchCount,
-                                              maxEventsBatchSize,
-                                              delay,
-                                              metadata,
-                                              timer);
-
+            maxEventsBatchCount,
+            maxEventsBatchSize,
+            delay,
+            metadata,
+            timer);
+*/
     if (sendModeStr != null) {
       if (sendModeStr.equals(SendModeSequential)) {
         this.sendMode = SendMode.Sequential;
@@ -166,7 +183,7 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
 
   }
 
-  public AckWindow getAckWindow(){
+  public AckWindow getAckWindow() {
     return this.ackMiddleware.getAckManager().getAckWindow();
   }
 
@@ -191,39 +208,42 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
           final String exception_message,
           Serializable marker
   ) {
-    this.eventsBatch = new EventBatch(this, 
-                                              maxEventsBatchCount,
-                                              maxEventsBatchSize, 
-                                              delay, 
-                                              metadata,
-                                              timer);
+    this.eventsBatch = new EventBatch(this,
+            maxEventsBatchCount,
+            maxEventsBatchSize,
+            delay,
+            metadata,
+            timer);
     // create event info container and add it to the batch
     HttpEventCollectorEventInfo eventInfo
             = new HttpEventCollectorEventInfo(severity, message, logger_name,
                     thread_name, properties, exception_message, marker);
     eventsBatch.add(eventInfo);
   }
-  
-/**
+
+  /**
    * Immediately send the EventBatch
+   *
    * @param events the batch of events to immediately send
    */
   public synchronized void sendBatch(EventBatch events) {
-      if(events.isFlushed()){
-        LOG.severe("Illegal attempt to send already-flushed batch. EventBatch is not reusable.");
-        throw new IllegalStateException("Illegal attempt to send already-flushed batch. EventBatch is not reusable.");
-      }
-       this.eventsBatch = events;
-       eventsBatch.setSender(this);
-       eventsBatch.flush();
+    if (events.isFlushed()) {
+      LOG.severe(
+              "Illegal attempt to send already-flushed batch. EventBatch is not reusable.");
+      throw new IllegalStateException(
+              "Illegal attempt to send already-flushed batch. EventBatch is not reusable.");
+    }
+    this.eventsBatch = events;
+    eventsBatch.setSender(this);
+    eventsBatch.flush();
 
-  }  
+  }
 
   /**
    * Flush all pending events
    */
   public synchronized void flush() {
-    if(eventsBatch.isFlushable()){ //true if there were actually events to flush
+    if (eventsBatch.isFlushable()) { //true if there were actually events to flush
       eventsBatch.flush();
       // Create new EventsBatch because events inside previous batch are
       // sending asynchronously and "previous" instance of EventBatch object
@@ -242,7 +262,7 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
    * Close events sender
    */
   public void close() {
-    if(null != eventsBatch){ //can happen if no msgs sent on this sender
+    if (null != eventsBatch) { //can happen if no msgs sent on this sender
       eventsBatch.close();
     }
     this.ackMiddleware.close();
@@ -258,11 +278,11 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
     disableCertificateValidation = true;
   }
 
-  public ChannelMetrics getChannelMetrics(){
+  public ChannelMetrics getChannelMetrics() {
     return this.ackMiddleware.getChannelMetrics();
   }
 
-  private void startHttpClient() {
+  private synchronized void startHttpClient() {
     if (httpClient != null) {
       // http client is already started
       return;
@@ -289,11 +309,12 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
                 null, acceptingTrustStrategy).build();
         httpClient = HttpAsyncClients.custom()
                 .setMaxConnTotal(maxConnTotal)
-                .setHostnameVerifier(
-                        SSLConnectionSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER).
-                setSSLContext(sslContext)
+                .setHostnameVerifier(SSLConnectionSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER)
+                .setSSLContext(sslContext)
                 .build();
       } catch (Exception e) {
+        LOG.severe(e.getMessage());
+        e.printStackTrace(); //fixme TODO
       }
     }
     httpClient.start();
@@ -363,7 +384,7 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
         // read reply only in case of a server error
         //if (httpStatusCode != 200) {
         try {
-          reply = EntityUtils.toString(response.getEntity(), encoding);		
+          reply = EntityUtils.toString(response.getEntity(), encoding);
         } catch (IOException e) {
           e.printStackTrace();
           //if IOException ocurrs toStringing response, this is not something we can expect client 
@@ -410,7 +431,7 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
     StringEntity entity;
     try {
       String req = ackMgr.getAckPollReq();
-      System.out.println("channel="+getChannel()+" posting acks: "+ req);      
+      System.out.println("channel=" + getChannel() + " posting acks: " + req);
       entity = new StringEntity(req);
     } catch (UnsupportedEncodingException ex) {
       LOG.severe(ex.getMessage());
@@ -454,10 +475,10 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
   }
 
   public void pollHealth(
-		  HttpEventCollectorMiddleware.IHttpSenderCallback callback) {
+          HttpEventCollectorMiddleware.IHttpSenderCallback callback) {
     startHttpClient(); // make sure http client is started
     // create http request
-    String getUrl = String.format("%s?ack=1&token=%s", healthUrl, token);
+    final String getUrl = String.format("%s?ack=1&token=%s", healthUrl, token);
     final HttpGet httpGet = new HttpGet(getUrl);
     httpGet.setHeader(
             AuthorizationHeaderTag,
@@ -476,6 +497,7 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
         try {
           msg = EntityUtils.toString(response.getEntity(), encoding);
         } catch (IOException e) {
+          e.printStackTrace(); //fixme todo
           throw new RuntimeException(e.getMessage(), e);
         }
         callback.completed(statusCode, msg);
@@ -490,6 +512,7 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
       public void cancelled() {
       }
     });
+
   }
 
 }
