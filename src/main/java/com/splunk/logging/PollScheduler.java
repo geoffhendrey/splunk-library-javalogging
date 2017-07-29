@@ -23,28 +23,16 @@ import java.util.concurrent.TimeUnit;
  * Periodically delegates polling for acks to the AckManager. Just a simple periodic scheduler.
  * @author ghendrey
  */
-class AckPollScheduler {
+class PollScheduler {
 
-  private AckManager ackManager;
   private ScheduledExecutorService scheduler;
   private boolean started;
 
-  public synchronized void start(AckManager am){
+  public synchronized void start(Runnable poller){
     if(started){
-      throw new IllegalStateException("AckPollController already started");
+      throw new IllegalStateException("PollController already started");
     }
-    this.ackManager = am;
     this.scheduler = Executors.newScheduledThreadPool(1);
-    Runnable poller = () -> {
-          if(this.ackManager.getAckPollReq().isEmpty()){
-              System.out.println("No acks to poll for");
-              return;
-          }else if(this.ackManager.isAckPollInProgress()){
-              System.out.println("skipping ack poll - already have one in flight");
-              return;
-          }
-          this.ackManager.pollAcks();
-    };
     scheduler.scheduleAtFixedRate(poller, 0, 1, TimeUnit.SECONDS);
     this.started = true;
     System.out.println("STARTED POLLING");
@@ -56,7 +44,7 @@ class AckPollScheduler {
   }
 
   public synchronized void stop() {
-    System.out.println("SHUTTING DOWN ACK POLLER");
+    System.out.println("SHUTTING DOWN POLLER");
     if(null != scheduler){    
       //scheduler.shutdown();
       scheduler.shutdownNow();

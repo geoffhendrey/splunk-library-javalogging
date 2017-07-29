@@ -36,5 +36,11 @@ public interface AckLifecycle {
   void ackPollNotOK(int statusCode, String reply);
 
   void ackPollFailed(Exception ex);
+
+  void healthPollFailed(Exception ex);
+
+  void healthPollOK();
+
+  void healthPollNotOK(int code, String msg);
 }
 

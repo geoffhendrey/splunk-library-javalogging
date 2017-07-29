@@ -57,7 +57,8 @@ public final class HttpEventCollectorLog4jAppender extends AbstractAppender
                          String middleware,
                          final String disableCertificateValidation,
 			     boolean ack,
-			     String ackUrl)
+			     String ackUrl,
+                 String healthUrl)
     {
         super(name, filter, layout, ignoreExceptions);
         Map<String, String> metadata = new HashMap<>();
@@ -66,7 +67,7 @@ public final class HttpEventCollectorLog4jAppender extends AbstractAppender
         metadata.put(HttpEventCollectorSender.MetadataSourceTag, source != null ? source : "");
         metadata.put(HttpEventCollectorSender.MetadataSourceTypeTag, sourcetype != null ? sourcetype : "");
 
-        this.sender = new HttpEventCollectorSender(url, token, batchInterval, batchCount, batchSize, sendMode, ack, ackUrl, metadata);
+        this.sender = new HttpEventCollectorSender(url, token, batchInterval, batchCount, batchSize, sendMode, ack, ackUrl, healthUrl, metadata);
 
         // plug a user middleware
         if (middleware != null && !middleware.isEmpty()) {
@@ -110,7 +111,8 @@ public final class HttpEventCollectorLog4jAppender extends AbstractAppender
             @PluginElement("Layout") Layout<? extends Serializable> layout,
             @PluginElement("Filter") final Filter filter,
             @PluginAttribute(value="ack", defaultBoolean=false) final boolean ack,
-            @PluginAttribute("ackUrl") final String ackUrl			
+            @PluginAttribute("ackUrl") final String ackUrl,
+            @PluginAttribute("healthUrl") final String healthUrl
     )
     {
         if (name == null)
@@ -137,7 +139,12 @@ public final class HttpEventCollectorLog4jAppender extends AbstractAppender
         }
         
         if (ack && (null==ackUrl || ackUrl.isEmpty())){        
-          LOGGER.error("AckUrl must be presetnt when ack=true");
+          LOGGER.error("AckUrl must be present when ack=true");
+          return null;
+        }
+
+        if (null==healthUrl || healthUrl.isEmpty()){
+          LOGGER.error("healthUrl is not provided for HttpEventCollectorLog4jAppender");
           return null;
         }
 
@@ -155,7 +162,8 @@ public final class HttpEventCollectorLog4jAppender extends AbstractAppender
                 middleware,
                 disableCertificateValidation,
                 ack, 
-                ackUrl);
+                ackUrl,
+                healthUrl);
     }
 
 

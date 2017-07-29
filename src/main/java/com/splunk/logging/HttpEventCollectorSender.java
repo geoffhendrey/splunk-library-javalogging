@@ -18,6 +18,7 @@ package com.splunk.logging;
  * the License.
  */
 import org.apache.http.HttpResponse;
+import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.concurrent.FutureCallback;
 import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
@@ -85,11 +86,11 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
   public static final int DefaultBatchInterval = 10 * 1000; // 10 seconds
   public static final int DefaultBatchSize = 10 * 1024; // 10KB
   public static final int DefaultBatchCount = 10; // 10 events
-  
+
   private Timer timer = new Timer();
   private String url;
   private String token;
-  private EventBatch eventsBatch;// = new EventBatch();  
+  private EventBatch eventsBatch;// = new EventBatch();
   private CloseableHttpAsyncClient httpClient;
   private boolean disableCertificateValidation = false;
   private SendMode sendMode = SendMode.Sequential;
@@ -99,6 +100,7 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
   private String ackUrl;
   private AckMiddleware ackMiddleware;
 
+  private String healthUrl;
   /**
    * Initialize HttpEventCollectorSender
    *
@@ -115,28 +117,42 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
           String sendModeStr,
           boolean ack,
           String ackUrl,
+          String healthUrl,
           Map<String, String> metadata) {
     this.url = Url;
     this.token = token;
     this.ack = ack;
     this.ackUrl = ackUrl;
-        if (maxEventsBatchCount == 0 && maxEventsBatchSize > 0) {
+    if (maxEventsBatchCount == 0 && maxEventsBatchSize > 0) {
       this.maxEventsBatchCount = Long.MAX_VALUE;
     } else if (maxEventsBatchSize == 0 && maxEventsBatchCount > 0) {
       this.maxEventsBatchSize = Long.MAX_VALUE;
     }
    this.delay= delay; 
    this.metadata=metadata;
+   this.healthUrl = healthUrl;
 
     if (ack) {
-      if (null == ackUrl || ackUrl.isEmpty()) {
+      if (null == ackUrl || ackUrl.isEmpty() ) {
         throw new RuntimeException(
                 "AckUrl was not specified, but HttpEventCollectorSender set to use acks.");
       }
       this.ackMiddleware = new AckMiddleware(this);
       this.middleware.add(ackMiddleware);
     }
-    
+
+    if (null == healthUrl || healthUrl.isEmpty() ) {
+        throw new RuntimeException(
+                "healthUrl was not specified.");
+    }
+
+    this.eventsBatch = new EventBatch(this,
+                                              maxEventsBatchCount,
+                                              maxEventsBatchSize,
+                                              delay,
+                                              metadata,
+                                              timer);
+
     if (sendModeStr != null) {
       if (sendModeStr.equals(SendModeSequential)) {
         this.sendMode = SendMode.Sequential;
@@ -149,7 +165,7 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
     }
 
   }
-  
+
   public AckWindow getAckWindow(){
     return this.ackMiddleware.getAckManager().getAckWindow();
   }
@@ -241,7 +257,7 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
   public void disableCertificateValidation() {
     disableCertificateValidation = true;
   }
-  
+
   public ChannelMetrics getChannelMetrics(){
     return this.ackMiddleware.getChannelMetrics();
   }
@@ -300,7 +316,7 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
             new HttpEventCollectorMiddleware.IHttpSenderCallback() {
       @Override
       public void completed(int statusCode, String reply) {
-        if (statusCode != 200) {          
+        if (statusCode != 200) {
           HttpEventCollectorErrorHandler.error(
                   events,
                   new HttpEventCollectorErrorHandler.ServerErrorException(
@@ -393,7 +409,7 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
 
     StringEntity entity;
     try {
-      String req = ackMgr.getAckPollReq().toString();
+      String req = ackMgr.getAckPollReq();
       System.out.println("channel="+getChannel()+" posting acks: "+ req);      
       entity = new StringEntity(req);
     } catch (UnsupportedEncodingException ex) {
@@ -411,7 +427,7 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
         //if (httpStatusCode != 200) {
         try {
           reply = EntityUtils.toString(response.getEntity(), encoding);
-          //System.out.println("reply: " + reply);	//fixme undo hack 		
+          //System.out.println("reply: " + reply);	//fixme undo hack
         } catch (IOException e) {
           e.printStackTrace();
           //if IOException ocurrs toStringing response, this is not something we can expect client 
@@ -435,6 +451,45 @@ public final class HttpEventCollectorSender implements HttpEventCollectorMiddlew
       }
     });
 
+  }
+
+  public void pollHealth(
+		  HttpEventCollectorMiddleware.IHttpSenderCallback callback) {
+    startHttpClient(); // make sure http client is started
+    // create http request
+    String getUrl = String.format("%s?ack=1&token=%s", healthUrl, token);
+    final HttpGet httpGet = new HttpGet(getUrl);
+    httpGet.setHeader(
+            AuthorizationHeaderTag,
+            String.format(AuthorizationHeaderScheme, token));
+
+    httpGet.setHeader(
+            ChannelHeader,
+            getChannel());
+
+    httpClient.execute(httpGet, new FutureCallback<HttpResponse>() {
+      @Override
+      public void completed(HttpResponse response) {
+        final String encoding = "utf-8";
+        String msg = "";
+        int statusCode = response.getStatusLine().getStatusCode();
+        try {
+          msg = EntityUtils.toString(response.getEntity(), encoding);
+        } catch (IOException e) {
+          throw new RuntimeException(e.getMessage(), e);
+        }
+        callback.completed(statusCode, msg);
+      }
+
+      @Override
+      public void failed(Exception ex) {
+        callback.failed(ex);
+      }
+
+      @Override
+      public void cancelled() {
+      }
+    });
   }
 
 }

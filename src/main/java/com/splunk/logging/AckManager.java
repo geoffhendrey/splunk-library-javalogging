@@ -39,7 +39,8 @@ public class AckManager implements AckLifecycle, Closeable{
 
   private static final ObjectMapper mapper = new ObjectMapper();
   private final HttpEventCollectorSender sender;
-  private final AckPollScheduler ackPollController = new AckPollScheduler();
+  private final PollScheduler ackPollController = new PollScheduler();
+  private final PollScheduler healthPollController = new PollScheduler();
   private final AckWindow ackWindow;
   private final ChannelMetrics channelMetrics;
   private boolean ackPollInProgress;
@@ -48,17 +49,45 @@ public class AckManager implements AckLifecycle, Closeable{
     this.sender = sender;
     this.channelMetrics = new ChannelMetrics(sender);
     this.ackWindow = new AckWindow(this.channelMetrics);
+
+    // start polling for health
+    startPollingForHealth();
   }
 
   /**
    * @return the ackPollReq
    */
-  public AckWindow getAckPollReq() {
-    return ackWindow;
+  public String getAckPollReq() {
+    return ackWindow.toString();
   }
 
   public ChannelMetrics getChannelMetrics() {
     return channelMetrics;
+  }
+  
+  private void startPolling() {
+	if (!ackPollController.isStarted()) {
+	    Runnable poller = () -> {
+	          if(this.getAckWindow().isEmpty()){
+	              System.out.println("No acks to poll for");
+	              return;
+	          }else if(this.isAckPollInProgress()){
+	              System.out.println("skipping ack poll - already have one in flight");
+	              return;
+	          }
+	          this.pollAcks();
+	    };
+	    ackPollController.start(poller);
+	}
+  }
+
+  private void startPollingForHealth() {
+	if (!healthPollController.isStarted()) {
+	    Runnable poller = () -> {
+	          this.pollHealth();
+	    };
+	    healthPollController.start(poller);
+	}
   }
 
   //called by AckMiddleware when event post response comes back with the indexer-generated ackId
@@ -75,12 +104,12 @@ public class AckManager implements AckLifecycle, Closeable{
       Logger.getLogger(getClass().getName()).log(Level.SEVERE, ex.getMessage(), ex);
       throw new RuntimeException(ex.getMessage(), ex);
     }
+
     System.out.println("ABOUT TO HANDLE EPR");
     ackWindow.handleEventPostResponse(epr, events);
-    if (!ackPollController.isStarted()) {
-      ackPollController.start(this); //will call back to pollAcks() for sending the list of ackIds to HEC 
-    }
 
+    // start polling for acks
+    startPolling();
   }
 
   public void consumeAckPollResponse(String resp) {
@@ -123,6 +152,38 @@ public class AckManager implements AckLifecycle, Closeable{
       }
     });
     System.out.println("sent acks");
+  }
+
+  public void setChannelHealth(int statusCode, String msg) {
+      // For status code anything other 200
+      if (statusCode == 200) {
+          System.out.println("Health check is good");
+          healthPollOK();
+      }
+      else if (statusCode == 503) {
+          healthPollNotOK(statusCode, msg);
+      }
+      else {
+          // 400 should not be indicative of unhealthy HEC
+          // but rather the URL/token is wrong.
+          healthPollFailed(new Exception(msg));
+      }
+  }
+
+  public void pollHealth() {
+    System.out.println("POLLING HEALTH...");
+    sender.pollHealth(
+            new HttpEventCollectorMiddleware.IHttpSenderCallback() {
+      @Override
+      public void completed(int statusCode, String reply) {
+        setChannelHealth(statusCode, reply);
+      }
+
+      @Override
+      public void failed(Exception ex) {
+        healthPollFailed(ex);
+      }
+    });
   }
 
   /**
@@ -185,13 +246,26 @@ public class AckManager implements AckLifecycle, Closeable{
   }
 
   @Override
-  public void close() {
-    this.ackPollController.stop();
+  public void healthPollFailed(Exception ex) {
+	getChannelMetrics().healthPollFailed(ex);
+  }
+
+  @Override
+  public void healthPollOK() {
+	getChannelMetrics().healthPollOK();
+  }
+
+  @Override
+  public void healthPollNotOK(int code, String msg) {
+	getChannelMetrics().healthPollNotOK(code, msg);
   }
 
   boolean isAckPollInProgress() {
     return this.ackPollInProgress;
   }
 
-
+  public void close() {
+    this.ackPollController.stop();
+    this.healthPollController.stop();
+  }
 }
